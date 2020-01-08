@@ -1,0 +1,72 @@
+#!/bin/bash
+# Park inconditionnel du télescope
+# Version 0.1
+# 08/01/2020
+
+TELDRIVER=LX200OnStep
+PROFIL="Ciel%20profond"
+ERR=0
+
+# Test de la présence du serveur Indi
+INDISTART=0
+curl  http://localhost:8624/api/server/status 2>/dev/null |  grep True > /dev/null
+if [ $? -ne 0 ]
+then
+	# Démarre le serveur Indi (LX200 OnStep)
+	echo "Demarrage Indi"
+	curl -X POST http://localhost:8624/api/server/start/$PROFIL
+	# Serveur démarré ?
+	curl  http://localhost:8624/api/server/status 2>/dev/null |  grep True > /dev/null
+	if [ $? -ne 0 ]
+	then
+		echo "Demarrage impossible"
+		exit 1
+	fi
+else
+	INDISTART=1
+fi
+# Lancement de la commande de park
+if [ $(indi_getprop -1 "LX200 OnStep.CONNECTION.CONNECT") == "Off" ]
+then
+	indi_setprop "LX200 OnStep.CONNECTION.CONNECT=On"
+fi
+# Télescope parqué ?
+if [ $(indi_getprop -1  "LX200 OnStep.TELESCOPE_PARK.PARK") == "Off" ]
+then
+	echo "Park du telescope"
+	# Non, tracking On ?
+	# Non, démarrage du tracking
+	# Commande park
+	indi_setprop "LX200 OnStep.TELESCOPE_PARK.PARK=On"
+	# Attente de la fin de park
+	DELAI=120	# Delai maximum pour le park
+	while [ $DELAI -gt 0 ]
+	do
+		if [ $(indi_getprop -1  "LX200 OnStep.TELESCOPE_PARK.PARK") == "On" ]
+		 then 
+			 echo "Park OK"
+			 break; 
+		fi
+		sleep 1
+		((DELAI--))
+	done
+
+	# Park OK ?
+	if [ $DELAI -le 0 ]; then ERR=1; fi
+fi
+
+# Arret du serveur Indi s'il n'était pas lancé
+if [ $INDISTART -eq 0 ]
+then
+	echo "Arret du serveur Indi"
+	curl -X POST http://localhost:8624/api/server/stop
+fi
+
+if [ $ERR -ne 0 ]
+then
+	echo "Erreur"
+	exit 1
+fi
+# FIN
+echo "Telescope parqué"
+exit 0
